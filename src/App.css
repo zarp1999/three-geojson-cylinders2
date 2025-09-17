@@ -1,0 +1,28 @@
+.App {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  flex: 0 0 auto;
+  height: 44px;
+  line-height: 44px;
+  padding: 0 16px;
+  background: #111827;
+  color: #ffffff;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.app-content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.three-container {
+  width: 100%;
+  height: 100%;
+}

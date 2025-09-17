@@ -1,0 +1,195 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [197.6491, 1036.0683],
+          [217.9748, 1058.2571]
+        ]
+      },
+      "properties": {
+        "diameter": "75",
+        "material": "PVC",
+        "pipe_kind": "water",
+        "start_point_depth": "0.80",
+        "end_point_depth": "0.85",
+        "layer": "下水道",
+        "_type": "LINE"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [217.9748, 1058.2571],
+          [240.5123, 1080.4412]
+        ]
+      },
+      "properties": {
+        "diameter": "100",
+        "material": "PVC",
+        "pipe_kind": "water",
+        "start_point_depth": "0.85",
+        "end_point_depth": "0.90",
+        "layer": "水道",
+        "_type": "LINE"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [240.5123, 1080.4412],
+          [260.8450, 1102.8765]
+        ]
+      },
+      "properties": {
+        "diameter": "100",
+        "material": "DIP",
+        "pipe_kind": "water",
+        "start_point_depth": "0.90",
+        "end_point_depth": "1.00",
+        "layer": "水道",
+        "_type": "LINE"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [260.8450, 1102.8765],
+          [280.1225, 1125.4410]
+        ]
+      },
+      "properties": {
+        "diameter": "150",
+        "material": "DIP",
+        "pipe_kind": "water",
+        "start_point_depth": "1.00",
+        "end_point_depth": "1.05",
+        "layer": "電気",
+        "_type": "LINE"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [280.1225, 1125.4410],
+          [300.9982, 1148.2244]
+        ]
+      },
+      "properties": {
+        "diameter": "150",
+        "material": "PVC",
+        "pipe_kind": "water",
+        "start_point_depth": "1.05",
+        "end_point_depth": "1.10",
+        "layer": "水道",
+        "_type": "LINE"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [300.9982, 1148.2244],
+          [322.5540, 1170.9988]
+        ]
+      },
+      "properties": {
+        "diameter": "200",
+        "material": "PVC",
+        "pipe_kind": "water",
+        "start_point_depth": "1.10",
+        "end_point_depth": "1.20",
+        "layer": "下水道",
+        "_type": "LINE"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [322.5540, 1170.9988],
+          [345.2299, 1193.7721]
+        ]
+      },
+      "properties": {
+        "diameter": "200",
+        "material": "PVC",
+        "pipe_kind": "water",
+        "start_point_depth": "1.20",
+        "end_point_depth": "1.25",
+        "layer": "水道",
+        "_type": "LINE"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [345.2299, 1193.7721],
+          [368.0012, 1217.5534]
+        ]
+      },
+      "properties": {
+        "diameter": "250",
+        "material": "DIP",
+        "pipe_kind": "water",
+        "start_point_depth": "1.25",
+        "end_point_depth": "1.30",
+        "layer": "水道",
+        "_type": "LINE"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [368.0012, 1217.5534],
+          [392.4415, 1240.2256]
+        ]
+      },
+      "properties": {
+        "diameter": "250",
+        "material": "PVC",
+        "pipe_kind": "water",
+        "start_point_depth": "1.30",
+        "end_point_depth": "1.35",
+        "layer": "電気",
+        "_type": "LINE"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [392.4415, 1240.2256],
+          [416.7722, 1263.8877]
+        ]
+      },
+      "properties": {
+        "diameter": "300",
+        "material": "PVC",
+        "pipe_kind": "water",
+        "start_point_depth": "1.35",
+        "end_point_depth": "1.40",
+        "layer": "水道",
+        "_type": "LINE"
+      }
+    }
+  ]
+}
