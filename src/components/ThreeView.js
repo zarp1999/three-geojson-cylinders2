@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { addPipesFromGeoJSON } from '../lib/pipes.js';
 import { buildPipesGroupFromGeoJSON, rebuildPipeMeshFromUserData } from '../lib/pipes.js';
 
-function ThreeView({ geojsonUrl = '/sample.geojson' }) {
+function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
   const containerRef = useRef(null);
   const [error, setError] = useState(null);
   const [selectedProps, setSelectedProps] = useState(null);
@@ -12,7 +12,10 @@ function ThreeView({ geojsonUrl = '/sample.geojson' }) {
 
   // レイヤー → 色 のマップ（UI で編集可能）
   const [layerColorMap, setLayerColorMap] = useState({});
+  // レイヤー → 表示状態 のマップ（チェックボックス用）
+  const [layerVisibilityMap, setLayerVisibilityMap] = useState({});
   const pipesGroupRef = useRef(null);
+  const originalGeoJSONRef = useRef(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -120,43 +123,59 @@ function ThreeView({ geojsonUrl = '/sample.geojson' }) {
       if (moved) controls.update();
     }
 
+    // 入力データの取り扱い: geojsonData が優先、無ければ geojsonUrl からフェッチ（後方互換）
     let cancelled = false;
-    fetch(geojsonUrl, { cache: 'no-cache' })
-      .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
-      .then(json => {
-        if (cancelled) return;
-        const { group, bounds } = buildPipesGroupFromGeoJSON(json);
-        if (group) {
-          pipesGroupRef.current = group;
-          scene.add(group);
+    const loadAndAdd = (json) => {
+      // 元のGeoJSONを保存（エクスポート用）
+      originalGeoJSONRef.current = json;
+      
+      const { group, bounds } = buildPipesGroupFromGeoJSON(json);
+      if (group) {
+        pipesGroupRef.current = group;
+        scene.add(group);
 
-          // 初期 layer 色マップを抽出
-          const map = {};
-          group.traverse(obj => {
-            if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
-              const layer = obj.userData?.layer || '';
-              if (layer && !map[layer]) {
-                map[layer] = '#' + obj.material.color.getHexString();
+        const colorMap = {};
+        const visibilityMap = {};
+        group.traverse(obj => {
+          if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
+            const layer = obj.userData?.layer || '';
+            if (layer) {
+              if (!colorMap[layer]) {
+                colorMap[layer] = '#' + obj.material.color.getHexString();
+              }
+              if (!(layer in visibilityMap)) {
+                visibilityMap[layer] = true; // 初期は表示
               }
             }
-          });
-          if (Object.keys(map).length > 0) setLayerColorMap(map);
+          }
+        });
+        if (Object.keys(colorMap).length > 0) setLayerColorMap(colorMap);
+        if (Object.keys(visibilityMap).length > 0) setLayerVisibilityMap(visibilityMap);
 
-          // カメラを全体にフィット
-          const center = new THREE.Vector3();
-          const size = new THREE.Vector3();
-          bounds.getCenter(center);
-          bounds.getSize(size);
-          controls.target.copy(center);
-          const maxSize = Math.max(size.x, size.y, size.z);
-          const fitDist = maxSize * 1.5;
-          camera.position.set(center.x + fitDist, center.y + fitDist * 0.6, center.z + fitDist);
-          camera.near = Math.max(0.1, maxSize / 1000);
-          camera.far = Math.max(1000, maxSize * 50);
-          camera.updateProjectionMatrix();
-        }
-      })
-      .catch(e => !cancelled && setError(`GeoJSON load error: ${e.message}`));
+        const center = new THREE.Vector3();
+        const size = new THREE.Vector3();
+        bounds.getCenter(center);
+        bounds.getSize(size);
+        controls.target.copy(center);
+        const maxSize = Math.max(size.x, size.y, size.z);
+        const fitDist = maxSize * 1.5;
+        camera.position.set(center.x + fitDist, center.y + fitDist * 0.6, center.z + fitDist);
+        camera.near = Math.max(0.1, maxSize / 1000);
+        camera.far = Math.max(1000, maxSize * 50);
+        camera.updateProjectionMatrix();
+      }
+    };
+
+    if (geojsonData) {
+      loadAndAdd(geojsonData);
+    } else if (geojsonUrl) {
+      fetch(geojsonUrl, { cache: 'no-cache' })
+        .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
+        .then(json => { if (!cancelled) loadAndAdd(json); })
+        .catch(e => !cancelled && setError(`GeoJSON load error: ${e.message}`));
+    } else {
+      setError('GeoJSON が指定されていません。');
+    }
 
     const onResize = () => {
       const { clientWidth, clientHeight } = container;
@@ -199,7 +218,66 @@ function ThreeView({ geojsonUrl = '/sample.geojson' }) {
         container.removeChild(renderer.domElement);
       }
     };
-  }, [geojsonUrl]);
+  }, [geojsonData, geojsonUrl]);
+
+  // レイヤー表示切り替え
+  function toggleLayerVisibility(layer) {
+    const group = pipesGroupRef.current;
+    if (!group) return;
+    
+    const newVisibility = !layerVisibilityMap[layer];
+    setLayerVisibilityMap(prev => ({ ...prev, [layer]: newVisibility }));
+    
+    group.traverse(obj => {
+      if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
+        const objLayer = obj.userData?.layer || '';
+        if (objLayer === layer) {
+          obj.visible = newVisibility;
+        }
+      }
+    });
+  }
+
+  // GeoJSONエクスポート
+  function exportGeoJSON() {
+    const group = pipesGroupRef.current;
+    if (!group || !originalGeoJSONRef.current) return;
+
+    // 修正された属性からGeoJSONを再構築
+    const features = [];
+    group.traverse(obj => {
+      if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry' && obj.userData?.properties) {
+        const props = obj.userData.properties;
+        const ep = obj.userData.endpoints;
+        if (ep) {
+          features.push({
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: [[ep.x1, ep.y1], [ep.x2, ep.y2]]
+            },
+            properties: { ...props }
+          });
+        }
+      }
+    });
+
+    const geojson = {
+      type: 'FeatureCollection',
+      features: features
+    };
+
+    // ファイルダウンロード
+    const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'modified-pipes.geojson';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 
   // パネル共通スタイル
   const panelStyle = {
@@ -268,23 +346,49 @@ function ThreeView({ geojsonUrl = '/sample.geojson' }) {
       React.createElement('div', { style: { fontSize: '11px', color: '#666' } }, '半径: radius, 直径: diameter は mm 推定→m に換算 / 深さは将来対応（コードに保持）。')
     ),
 
-    // レイヤー色編集パネル
+    // レイヤー色編集パネル（表示切り替えも統合）
     layerKeys.length > 0 && React.createElement(
       'div',
       { style: { ...panelStyle, top: 'auto', bottom: '10px' } },
-      React.createElement('div', { style: { fontWeight: 700, marginBottom: '6px' } }, 'レイヤーの色（一括変更）'),
+      React.createElement('div', { style: { fontWeight: 700, marginBottom: '6px' } }, 'レイヤー設定'),
       layerKeys.map((layer) =>
         React.createElement(
           'div',
           { key: layer, style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' } },
-          React.createElement('label', { style: { width: '50%' } }, layer || '(レイヤー名なし)'),
+          React.createElement('input', {
+            type: 'checkbox',
+            checked: layerVisibilityMap[layer] !== false,
+            onChange: () => toggleLayerVisibility(layer),
+            style: { marginRight: '4px' }
+          }),
+          React.createElement('label', { style: { width: '40%', fontSize: '11px' } }, layer || '(レイヤー名なし)'),
           React.createElement('input', {
             type: 'color',
             value: layerColorMap[layer],
-            onChange: (e) => updateLayerColor(layer, e.target.value)
+            onChange: (e) => updateLayerColor(layer, e.target.value),
+            style: { width: '30px', height: '20px' }
           })
         )
       )
+    ),
+
+    // GeoJSONエクスポートボタン（左上に移動）
+    originalGeoJSONRef.current && React.createElement(
+      'div',
+      { style: { ...panelStyle, top: '10px', left: '10px', right: 'auto', bottom: 'auto' } },
+      React.createElement('button', {
+        style: {
+          padding: '8px 12px',
+          background: '#059669',
+          color: '#fff',
+          border: 'none',
+          borderRadius: '4px',
+          cursor: 'pointer',
+          fontSize: '12px',
+          fontWeight: '600'
+        },
+        onClick: exportGeoJSON
+      }, 'GeoJSON エクスポート')
     ),
 
     error && React.createElement('div', { style: { position: 'absolute', bottom: '10px', left: '10px', color: 'red' } }, error)
