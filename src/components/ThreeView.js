@@ -14,6 +14,10 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
   const [layerColorMap, setLayerColorMap] = useState({});
   // レイヤー → 表示状態 のマップ（チェックボックス用）
   const [layerVisibilityMap, setLayerVisibilityMap] = useState({});
+  // 編集済みメッシュのIDを追跡
+  const [editedMeshIds, setEditedMeshIds] = useState(new Set());
+  // 編集済みのみ表示フラグ
+  const [showOnlyEdited, setShowOnlyEdited] = useState(false);
   const pipesGroupRef = useRef(null);
   const originalGeoJSONRef = useRef(null);
 
@@ -232,7 +236,30 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
       if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
         const objLayer = obj.userData?.layer || '';
         if (objLayer === layer) {
-          obj.visible = newVisibility;
+          obj.visible = newVisibility && (!showOnlyEdited || editedMeshIds.has(obj.id));
+        }
+      }
+    });
+  }
+
+  // 編集済みのみ表示切り替え
+  function toggleShowOnlyEdited() {
+    const group = pipesGroupRef.current;
+    if (!group) return;
+    
+    const newShowOnlyEdited = !showOnlyEdited;
+    setShowOnlyEdited(newShowOnlyEdited);
+    
+    group.traverse(obj => {
+      if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
+        const objLayer = obj.userData?.layer || '';
+        const layerVisible = layerVisibilityMap[objLayer] !== false;
+        const isEdited = editedMeshIds.has(obj.id);
+        
+        if (newShowOnlyEdited) {
+          obj.visible = layerVisible && isEdited;
+        } else {
+          obj.visible = layerVisible;
         }
       }
     });
@@ -301,6 +328,9 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     mesh.userData.properties = next;
     setSelectedProps(next);
     rebuildPipeMeshFromUserData(mesh);
+    
+    // 編集済みとしてマーク
+    setEditedMeshIds(prev => new Set([...prev, mesh.id]));
   }
 
   // レイヤー色変更時に同レイヤーの全メッシュへ反映
@@ -351,6 +381,20 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
       'div',
       { style: { ...panelStyle, top: 'auto', bottom: '10px' } },
       React.createElement('div', { style: { fontWeight: 700, marginBottom: '6px' } }, 'レイヤー設定'),
+      
+      // 編集済みのみ表示チェックボックス
+      React.createElement(
+        'div',
+        { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', padding: '6px', background: '#f8f9fa', borderRadius: '4px' } },
+        React.createElement('input', {
+          type: 'checkbox',
+          checked: showOnlyEdited,
+          onChange: toggleShowOnlyEdited,
+          style: { marginRight: '4px' }
+        }),
+        React.createElement('label', { style: { fontSize: '11px', fontWeight: '600' } }, '編集済みのみ表示')
+      ),
+      
       layerKeys.map((layer) =>
         React.createElement(
           'div',
