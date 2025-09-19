@@ -60,8 +60,8 @@ function meshesFromFeature(feature) {
       if (mesh) result.push(mesh);
     }
   }
-  // Point の処理（_type: "ARC" の場合）
-  else if (type === 'point' && props._type === 'ARC') {
+  // ARC の処理（_type: "ARC" の場合）
+  else if (props._type === 'ARC') {
     const mesh = buildArcFromPoint(g.coordinates, props);
     if (mesh) result.push(mesh);
   }
@@ -141,8 +141,8 @@ function buildArcFromPoint(coordinates, props) {
   const endAngle = toNumber(props.endAngle);
   
   if (!(isFinite(startAngle) && isFinite(endAngle))) {
-    // 角度が無効な場合は円として表示
-    return buildCircleFromPoint(coordinates, props);
+    // 角度が無効な場合は表示しない
+    return null;
   }
 
   // 円弧のジオメトリを作成
@@ -183,43 +183,6 @@ function buildArcFromPoint(coordinates, props) {
   return mesh;
 }
 
-/**
- * Point ジオメトリから円メッシュを生成（角度情報がない場合用）。
- */
-function buildCircleFromPoint(coordinates, props) {
-  if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
-
-  const [x, y] = coordinates;
-  const radius = chooseRadius(props);
-  if (!(isFinite(radius) && radius > 0)) return null;
-
-  // 円のジオメトリを作成
-  const geometry = new THREE.CircleGeometry(radius, 32);
-
-  // 初期色は layer 優先、なければ material ベース
-  const color = colorFromLayer(props.layer) ?? colorFromMaterial(props.material);
-  const material = new THREE.MeshStandardMaterial({
-    color,
-    roughness: 0.6,
-    metalness: 0.1,
-    transparent: true,
-    opacity: 0.75,
-    side: THREE.DoubleSide
-  });
-
-  const mesh = new THREE.Mesh(geometry, material);
-
-  // 位置を設定（床上）
-  mesh.position.set(x, 0.01, y); // 床より少し上に配置
-  mesh.rotation.x = -Math.PI / 2; // 水平に配置
-
-  // 編集・選択用データ
-  mesh.userData = mesh.userData || {};
-  mesh.userData.properties = { ...props };
-  mesh.userData.layer = props.layer ?? '';
-
-  return mesh;
-}
 
 /**
  * 2 点から 1 本の円柱を生成。
@@ -365,8 +328,8 @@ function rebuildArcMesh(mesh, props) {
   const endAngle = toNumber(props.endAngle);
   
   if (!(isFinite(startAngle) && isFinite(endAngle))) {
-    // 角度が無効な場合は円として再構築
-    rebuildCircleMesh(mesh, props);
+    // 角度が無効な場合は表示しない（メッシュを非表示にする）
+    mesh.visible = false;
     return;
   }
 
@@ -398,22 +361,4 @@ function rebuildArcMesh(mesh, props) {
 
   // arcData を更新
   mesh.userData.arcData = { startAngle, endAngle, radius };
-}
-
-/**
- * 円メッシュを再構築。
- */
-function rebuildCircleMesh(mesh, props) {
-  const radius = chooseRadius(props);
-  if (!(isFinite(radius) && radius > 0)) return;
-
-  const oldGeo = mesh.geometry;
-  mesh.geometry = new THREE.CircleGeometry(radius, 32);
-  oldGeo?.dispose && oldGeo.dispose();
-
-  // 色を更新
-  const color = colorFromLayer(props.layer) ?? colorFromMaterial(props.material);
-  if (mesh.material) {
-    mesh.material.color = new THREE.Color(color);
-  }
 }

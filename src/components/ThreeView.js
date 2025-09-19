@@ -18,10 +18,6 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
   const [editedMeshIds, setEditedMeshIds] = useState(new Set());
   // 編集済みのみ表示フラグ
   const [showOnlyEdited, setShowOnlyEdited] = useState(false);
-  // 検索関連の状態
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState(new Set());
-  const [isSearching, setIsSearching] = useState(false);
   const pipesGroupRef = useRef(null);
   const originalGeoJSONRef = useRef(null);
 
@@ -94,8 +90,8 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects(scene.children, true)
-        .filter(hit => hit.object && hit.object.isMesh && hit.object.geometry && hit.object.geometry.type === 'CylinderGeometry');
+       const intersects = raycaster.intersectObjects(scene.children, true)
+         .filter(hit => hit.object && hit.object.isMesh && (hit.object.geometry?.type === 'CylinderGeometry' || hit.object.userData?.arcData));
       if (intersects.length > 0) {
         const mesh = intersects[0].object;
         setHighlight(mesh);
@@ -144,19 +140,19 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
 
         const colorMap = {};
         const visibilityMap = {};
-        group.traverse(obj => {
-          if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
-            const layer = obj.userData?.layer || '';
-            if (layer) {
-              if (!colorMap[layer]) {
-                colorMap[layer] = '#' + obj.material.color.getHexString();
-              }
-              if (!(layer in visibilityMap)) {
-                visibilityMap[layer] = true; // 初期は表示
-              }
-            }
-          }
-        });
+         group.traverse(obj => {
+           if (obj.isMesh && obj.userData?.layer !== undefined) {
+             const layer = obj.userData?.layer || '';
+             if (layer) {
+               if (!colorMap[layer]) {
+                 colorMap[layer] = '#' + obj.material.color.getHexString();
+               }
+               if (!(layer in visibilityMap)) {
+                 visibilityMap[layer] = true; // 初期は表示
+               }
+             }
+           }
+         });
         if (Object.keys(colorMap).length > 0) setLayerColorMap(colorMap);
         if (Object.keys(visibilityMap).length > 0) setLayerVisibilityMap(visibilityMap);
 
@@ -236,12 +232,11 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     const newVisibility = !layerVisibilityMap[layer];
     setLayerVisibilityMap(prev => ({ ...prev, [layer]: newVisibility }));
     
-    group.traverse(obj => {
-      if (obj.isMesh && obj.userData?.layer === layer) {
-        const isSearchMatch = searchResults.size === 0 || searchResults.has(obj.id);
-        obj.visible = newVisibility && (!showOnlyEdited || editedMeshIds.has(obj.id)) && isSearchMatch;
-      }
-    });
+     group.traverse(obj => {
+       if (obj.isMesh && obj.userData?.layer === layer) {
+         obj.visible = newVisibility && (!showOnlyEdited || editedMeshIds.has(obj.id));
+       }
+     });
   }
 
   // 編集済みのみ表示切り替え
@@ -252,112 +247,21 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     const newShowOnlyEdited = !showOnlyEdited;
     setShowOnlyEdited(newShowOnlyEdited);
     
-    group.traverse(obj => {
-      if (obj.isMesh && obj.userData?.layer !== undefined) {
-        const objLayer = obj.userData?.layer || '';
-        const layerVisible = layerVisibilityMap[objLayer] !== false;
-        const isEdited = editedMeshIds.has(obj.id);
-        const isSearchMatch = searchResults.size === 0 || searchResults.has(obj.id);
-        
-        if (newShowOnlyEdited) {
-          obj.visible = layerVisible && isEdited && isSearchMatch;
-        } else {
-          obj.visible = layerVisible && isSearchMatch;
-        }
-      }
-    });
+     group.traverse(obj => {
+       if (obj.isMesh && obj.userData?.layer !== undefined) {
+         const objLayer = obj.userData?.layer || '';
+         const layerVisible = layerVisibilityMap[objLayer] !== false;
+         const isEdited = editedMeshIds.has(obj.id);
+         
+         if (newShowOnlyEdited) {
+           obj.visible = layerVisible && isEdited;
+         } else {
+           obj.visible = layerVisible;
+         }
+       }
+     });
   }
 
-  // 検索実行
-  function performSearch() {
-    const group = pipesGroupRef.current;
-    if (!group || !searchQuery.trim()) {
-      setSearchResults(new Set());
-      setIsSearching(false);
-      // 検索をクリアして全表示に戻す
-      group.traverse(obj => {
-        if (obj.isMesh && obj.userData?.layer !== undefined) {
-          const objLayer = obj.userData?.layer || '';
-          const layerVisible = layerVisibilityMap[objLayer] !== false;
-          const isEdited = editedMeshIds.has(obj.id);
-          
-          if (showOnlyEdited) {
-            obj.visible = layerVisible && isEdited;
-          } else {
-            obj.visible = layerVisible;
-          }
-        }
-      });
-      return;
-    }
-
-    const query = searchQuery.toLowerCase().trim();
-    const results = new Set();
-    
-    group.traverse(obj => {
-      if (obj.isMesh && obj.userData?.properties) {
-        const props = obj.userData.properties;
-        let isMatch = false;
-        
-        // 全属性を検索
-        for (const [key, value] of Object.entries(props)) {
-          if (String(value).toLowerCase().includes(query) || 
-              key.toLowerCase().includes(query)) {
-            isMatch = true;
-            break;
-          }
-        }
-        
-        if (isMatch) {
-          results.add(obj.id);
-        }
-      }
-    });
-    
-    setSearchResults(results);
-    setIsSearching(true);
-    
-    // 検索結果に基づいて表示を更新
-    group.traverse(obj => {
-      if (obj.isMesh && obj.userData?.layer !== undefined) {
-        const objLayer = obj.userData?.layer || '';
-        const layerVisible = layerVisibilityMap[objLayer] !== false;
-        const isEdited = editedMeshIds.has(obj.id);
-        const isSearchMatch = results.has(obj.id);
-        
-        if (showOnlyEdited) {
-          obj.visible = layerVisible && isEdited && isSearchMatch;
-        } else {
-          obj.visible = layerVisible && isSearchMatch;
-        }
-      }
-    });
-  }
-
-  // 検索クリア
-  function clearSearch() {
-    setSearchQuery('');
-    setSearchResults(new Set());
-    setIsSearching(false);
-    
-    const group = pipesGroupRef.current;
-    if (!group) return;
-    
-    // 全表示に戻す
-    group.traverse(obj => {
-      if (obj.isMesh && obj.userData?.layer !== undefined) {
-        const objLayer = obj.userData?.layer || '';
-        const layerVisible = layerVisibilityMap[objLayer] !== false;
-        const isEdited = editedMeshIds.has(obj.id);
-        
-        if (showOnlyEdited) {
-          obj.visible = layerVisible && isEdited;
-        } else {
-          obj.visible = layerVisible;
-        }
-      }
-    });
-  }
 
   // GeoJSONエクスポート
   function exportGeoJSON() {
@@ -400,18 +304,6 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
               startAngle: arcData.startAngle,
               endAngle: arcData.endAngle
             }
-          });
-        }
-        // 円メッシュ（Point）の場合
-        else if (obj.geometry && obj.geometry.type === 'CircleGeometry') {
-          const pos = obj.position;
-          features.push({
-            type: 'Feature',
-            geometry: {
-              type: 'Point',
-              coordinates: [pos.x, pos.z] // Y軸は高さなのでZ軸に変換
-            },
-            properties: { ...props }
           });
         }
       }
@@ -544,57 +436,6 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
       )
     ),
 
-    // 検索パネル
-    React.createElement(
-      'div',
-      { style: { ...panelStyle, top: '10px', left: '10px', right: 'auto', bottom: 'auto', maxWidth: '300px' } },
-      React.createElement('div', { style: { fontWeight: 700, marginBottom: '6px' } }, '検索'),
-      React.createElement('div', { style: { display: 'flex', gap: '6px', marginBottom: '6px' } },
-        React.createElement('input', {
-          type: 'text',
-          placeholder: '例: diameter: 300, layer: 水道',
-          value: searchQuery,
-          onChange: (e) => setSearchQuery(e.target.value),
-          onKeyPress: (e) => e.key === 'Enter' && performSearch(),
-          style: { 
-            flex: 1, 
-            padding: '6px 8px', 
-            border: '1px solid #ccc', 
-            borderRadius: '4px', 
-            fontSize: '11px' 
-          }
-        }),
-        React.createElement('button', {
-          onClick: performSearch,
-          style: {
-            padding: '6px 10px',
-            background: '#2563eb',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '11px',
-            fontWeight: '600'
-          }
-        }, '検索'),
-        React.createElement('button', {
-          onClick: clearSearch,
-          style: {
-            padding: '6px 10px',
-            background: '#6b7280',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '11px',
-            fontWeight: '600'
-          }
-        }, 'クリア')
-      ),
-      isSearching && React.createElement('div', { 
-        style: { fontSize: '11px', color: '#059669', fontWeight: '600' } 
-      }, `検索結果: ${searchResults.size}件`)
-    ),
 
     // GeoJSONエクスポートボタン（右上に移動）
     originalGeoJSONRef.current && React.createElement(
