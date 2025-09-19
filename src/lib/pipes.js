@@ -39,7 +39,7 @@ export function buildPipesGroupFromGeoJSON(geojson) {
 }
 
 /**
- * Feature 単位でメッシュ配列を構築（折れ線は隣接ペアごとに分割）。
+ * Feature 単位でメッシュ配列を構築（折れ線は隣接ペアごとに分割、点は円弧として表示）。
  */
 function meshesFromFeature(feature) {
   const result = [];
@@ -47,16 +47,25 @@ function meshesFromFeature(feature) {
 
   const g = feature.geometry;
   const type = (g.type || '').toLowerCase();
-  if (!(type.includes('line') && type.includes('string'))) return result;
+  const props = feature.properties || {};
 
-  let coords = g.coordinates;
-  if (!Array.isArray(coords) || coords.length < 2) return result;
-  if (Array.isArray(coords) && coords.length === 1 && Array.isArray(coords[0][0])) coords = coords[0];
+  // LineString の処理
+  if (type.includes('line') && type.includes('string')) {
+    let coords = g.coordinates;
+    if (!Array.isArray(coords) || coords.length < 2) return result;
+    if (Array.isArray(coords) && coords.length === 1 && Array.isArray(coords[0][0])) coords = coords[0];
 
-  for (let i = 0; i < coords.length - 1; i++) {
-    const mesh = buildPipeSegment(coords[i], coords[i + 1], feature.properties || {});
+    for (let i = 0; i < coords.length - 1; i++) {
+      const mesh = buildPipeSegment(coords[i], coords[i + 1], props);
+      if (mesh) result.push(mesh);
+    }
+  }
+  // Point の処理（_type: "ARC" の場合）
+  else if (type === 'point' && props._type === 'ARC') {
+    const mesh = buildArcFromPoint(g.coordinates, props);
     if (mesh) result.push(mesh);
   }
+
   return result;
 }
 
@@ -115,6 +124,101 @@ function colorFromMaterial(material) {
 function readDepth(value) {
   const n = toNumber(value);
   return isFinite(n) ? n : 0;
+}
+
+/**
+ * Point ジオメトリから円弧メッシュを生成（_type: "ARC" 用）。
+ */
+function buildArcFromPoint(coordinates, props) {
+  if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
+
+  const [x, y] = coordinates;
+  const radius = chooseRadius(props);
+  if (!(isFinite(radius) && radius > 0)) return null;
+
+  // startAngle と endAngle を取得（ラジアン）
+  const startAngle = toNumber(props.startAngle);
+  const endAngle = toNumber(props.endAngle);
+  
+  if (!(isFinite(startAngle) && isFinite(endAngle))) {
+    // 角度が無効な場合は円として表示
+    return buildCircleFromPoint(coordinates, props);
+  }
+
+  // 円弧のジオメトリを作成
+  const curve = new THREE.EllipseCurve(
+    0, 0, // 中心
+    radius, radius, // 半径
+    startAngle, endAngle, // 開始・終了角度
+    false, // 時計回り
+    0 // 回転
+  );
+
+  const points = curve.getPoints(50); // 50個の点で円弧を近似
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+
+  // 線の太さを設定（円柱の半径から推定）
+  const lineWidth = Math.max(0.01, radius * 0.1); // 半径の10%を線の太さとする
+
+  // 初期色は layer 優先、なければ material ベース
+  const color = colorFromLayer(props.layer) ?? colorFromMaterial(props.material);
+  const material = new THREE.LineBasicMaterial({
+    color,
+    linewidth: lineWidth,
+    transparent: true,
+    opacity: 0.8
+  });
+
+  const mesh = new THREE.Line(geometry, material);
+
+  // 位置を設定（床上）
+  mesh.position.set(x, radius, y);
+
+  // 編集・選択用データ
+  mesh.userData = mesh.userData || {};
+  mesh.userData.properties = { ...props };
+  mesh.userData.layer = props.layer ?? '';
+  mesh.userData.arcData = { startAngle, endAngle, radius };
+
+  return mesh;
+}
+
+/**
+ * Point ジオメトリから円メッシュを生成（角度情報がない場合用）。
+ */
+function buildCircleFromPoint(coordinates, props) {
+  if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
+
+  const [x, y] = coordinates;
+  const radius = chooseRadius(props);
+  if (!(isFinite(radius) && radius > 0)) return null;
+
+  // 円のジオメトリを作成
+  const geometry = new THREE.CircleGeometry(radius, 32);
+
+  // 初期色は layer 優先、なければ material ベース
+  const color = colorFromLayer(props.layer) ?? colorFromMaterial(props.material);
+  const material = new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.6,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.75,
+    side: THREE.DoubleSide
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+
+  // 位置を設定（床上）
+  mesh.position.set(x, 0.01, y); // 床より少し上に配置
+  mesh.rotation.x = -Math.PI / 2; // 水平に配置
+
+  // 編集・選択用データ
+  mesh.userData = mesh.userData || {};
+  mesh.userData.properties = { ...props };
+  mesh.userData.layer = props.layer ?? '';
+
+  return mesh;
 }
 
 /**
@@ -188,10 +292,19 @@ function buildPipeSegment(p0, p1, props) {
 /**
  * 選択中メッシュの userData を基に形状を再構築。
  * 現在は水平配置に合わせる。深さ対応版はコメント参照。
+ * 円弧メッシュの再構築にも対応。
  */
 export function rebuildPipeMeshFromUserData(mesh) {
   if (!mesh?.userData) return;
   const props = mesh.userData.properties || {};
+  
+  // 円弧メッシュの場合
+  if (mesh.userData.arcData) {
+    rebuildArcMesh(mesh, props);
+    return;
+  }
+  
+  // パイプメッシュの場合
   const ep = mesh.userData.endpoints || null;
   if (!ep) return;
 
@@ -235,5 +348,72 @@ export function rebuildPipeMeshFromUserData(mesh) {
     mesh.material.transparent = true;
     mesh.material.opacity = 0.75;
     mesh.material.depthWrite = false;
+  }
+}
+
+/**
+ * 円弧メッシュを再構築。
+ */
+function rebuildArcMesh(mesh, props) {
+  const arcData = mesh.userData.arcData;
+  if (!arcData) return;
+
+  const radius = chooseRadius(props);
+  if (!(isFinite(radius) && radius > 0)) return;
+
+  const startAngle = toNumber(props.startAngle);
+  const endAngle = toNumber(props.endAngle);
+  
+  if (!(isFinite(startAngle) && isFinite(endAngle))) {
+    // 角度が無効な場合は円として再構築
+    rebuildCircleMesh(mesh, props);
+    return;
+  }
+
+  // 円弧のジオメトリを再作成
+  const curve = new THREE.EllipseCurve(
+    0, 0, // 中心
+    radius, radius, // 半径
+    startAngle, endAngle, // 開始・終了角度
+    false, // 時計回り
+    0 // 回転
+  );
+
+  const points = curve.getPoints(50);
+  const oldGeo = mesh.geometry;
+  mesh.geometry = new THREE.BufferGeometry().setFromPoints(points);
+  oldGeo?.dispose && oldGeo.dispose();
+
+  // 線の太さを更新
+  const lineWidth = Math.max(0.01, radius * 0.1);
+  if (mesh.material) {
+    mesh.material.linewidth = lineWidth;
+  }
+
+  // 色を更新
+  const color = colorFromLayer(props.layer) ?? colorFromMaterial(props.material);
+  if (mesh.material) {
+    mesh.material.color = new THREE.Color(color);
+  }
+
+  // arcData を更新
+  mesh.userData.arcData = { startAngle, endAngle, radius };
+}
+
+/**
+ * 円メッシュを再構築。
+ */
+function rebuildCircleMesh(mesh, props) {
+  const radius = chooseRadius(props);
+  if (!(isFinite(radius) && radius > 0)) return;
+
+  const oldGeo = mesh.geometry;
+  mesh.geometry = new THREE.CircleGeometry(radius, 32);
+  oldGeo?.dispose && oldGeo.dispose();
+
+  // 色を更新
+  const color = colorFromLayer(props.layer) ?? colorFromMaterial(props.material);
+  if (mesh.material) {
+    mesh.material.color = new THREE.Color(color);
   }
 }

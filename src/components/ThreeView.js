@@ -237,11 +237,9 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     setLayerVisibilityMap(prev => ({ ...prev, [layer]: newVisibility }));
     
     group.traverse(obj => {
-      if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
-        const objLayer = obj.userData?.layer || '';
-        if (objLayer === layer) {
-          obj.visible = newVisibility && (!showOnlyEdited || editedMeshIds.has(obj.id));
-        }
+      if (obj.isMesh && obj.userData?.layer === layer) {
+        const isSearchMatch = searchResults.size === 0 || searchResults.has(obj.id);
+        obj.visible = newVisibility && (!showOnlyEdited || editedMeshIds.has(obj.id)) && isSearchMatch;
       }
     });
   }
@@ -255,7 +253,7 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     setShowOnlyEdited(newShowOnlyEdited);
     
     group.traverse(obj => {
-      if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
+      if (obj.isMesh && obj.userData?.layer !== undefined) {
         const objLayer = obj.userData?.layer || '';
         const layerVisible = layerVisibilityMap[objLayer] !== false;
         const isEdited = editedMeshIds.has(obj.id);
@@ -278,7 +276,7 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
       setIsSearching(false);
       // 検索をクリアして全表示に戻す
       group.traverse(obj => {
-        if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
+        if (obj.isMesh && obj.userData?.layer !== undefined) {
           const objLayer = obj.userData?.layer || '';
           const layerVisible = layerVisibilityMap[objLayer] !== false;
           const isEdited = editedMeshIds.has(obj.id);
@@ -297,7 +295,7 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     const results = new Set();
     
     group.traverse(obj => {
-      if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry' && obj.userData?.properties) {
+      if (obj.isMesh && obj.userData?.properties) {
         const props = obj.userData.properties;
         let isMatch = false;
         
@@ -321,7 +319,7 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     
     // 検索結果に基づいて表示を更新
     group.traverse(obj => {
-      if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
+      if (obj.isMesh && obj.userData?.layer !== undefined) {
         const objLayer = obj.userData?.layer || '';
         const layerVisible = layerVisibilityMap[objLayer] !== false;
         const isEdited = editedMeshIds.has(obj.id);
@@ -347,7 +345,7 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     
     // 全表示に戻す
     group.traverse(obj => {
-      if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
+      if (obj.isMesh && obj.userData?.layer !== undefined) {
         const objLayer = obj.userData?.layer || '';
         const layerVisible = layerVisibilityMap[objLayer] !== false;
         const isEdited = editedMeshIds.has(obj.id);
@@ -369,15 +367,49 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     // 修正された属性からGeoJSONを再構築
     const features = [];
     group.traverse(obj => {
-      if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry' && obj.userData?.properties) {
+      if (obj.isMesh && obj.userData?.properties) {
         const props = obj.userData.properties;
-        const ep = obj.userData.endpoints;
-        if (ep) {
+        
+        // パイプメッシュ（LineString）の場合
+        if (obj.geometry && obj.geometry.type === 'CylinderGeometry') {
+          const ep = obj.userData.endpoints;
+          if (ep) {
+            features.push({
+              type: 'Feature',
+              geometry: {
+                type: 'LineString',
+                coordinates: [[ep.x1, ep.y1], [ep.x2, ep.y2]]
+              },
+              properties: { ...props }
+            });
+          }
+        }
+        // 円弧メッシュ（Point with ARC）の場合
+        else if (obj.userData.arcData) {
+          const arcData = obj.userData.arcData;
+          const pos = obj.position;
           features.push({
             type: 'Feature',
             geometry: {
-              type: 'LineString',
-              coordinates: [[ep.x1, ep.y1], [ep.x2, ep.y2]]
+              type: 'Point',
+              coordinates: [pos.x, pos.z] // Y軸は高さなのでZ軸に変換
+            },
+            properties: { 
+              ...props,
+              _type: 'ARC',
+              startAngle: arcData.startAngle,
+              endAngle: arcData.endAngle
+            }
+          });
+        }
+        // 円メッシュ（Point）の場合
+        else if (obj.geometry && obj.geometry.type === 'CircleGeometry') {
+          const pos = obj.position;
+          features.push({
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: [pos.x, pos.z] // Y軸は高さなのでZ軸に変換
             },
             properties: { ...props }
           });
@@ -436,9 +468,9 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     setLayerColorMap(prev => ({ ...prev, [layer]: hex }));
     const color = new THREE.Color(hex);
     group.traverse(obj => {
-      if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
+      if (obj.isMesh && obj.material && !Array.isArray(obj.material)) {
         const objLayer = obj.userData?.layer || '';
-        if (objLayer === layer && obj.material && !Array.isArray(obj.material)) {
+        if (objLayer === layer) {
           obj.material.color = color.clone();
         }
       }
