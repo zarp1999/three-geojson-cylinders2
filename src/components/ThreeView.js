@@ -18,6 +18,10 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
   const [editedMeshIds, setEditedMeshIds] = useState(new Set());
   // 編集済みのみ表示フラグ
   const [showOnlyEdited, setShowOnlyEdited] = useState(false);
+  // 検索関連の状態
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState(new Set());
+  const [isSearching, setIsSearching] = useState(false);
   const pipesGroupRef = useRef(null);
   const originalGeoJSONRef = useRef(null);
 
@@ -255,8 +259,100 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
         const objLayer = obj.userData?.layer || '';
         const layerVisible = layerVisibilityMap[objLayer] !== false;
         const isEdited = editedMeshIds.has(obj.id);
+        const isSearchMatch = searchResults.size === 0 || searchResults.has(obj.id);
         
         if (newShowOnlyEdited) {
+          obj.visible = layerVisible && isEdited && isSearchMatch;
+        } else {
+          obj.visible = layerVisible && isSearchMatch;
+        }
+      }
+    });
+  }
+
+  // 検索実行
+  function performSearch() {
+    const group = pipesGroupRef.current;
+    if (!group || !searchQuery.trim()) {
+      setSearchResults(new Set());
+      setIsSearching(false);
+      // 検索をクリアして全表示に戻す
+      group.traverse(obj => {
+        if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
+          const objLayer = obj.userData?.layer || '';
+          const layerVisible = layerVisibilityMap[objLayer] !== false;
+          const isEdited = editedMeshIds.has(obj.id);
+          
+          if (showOnlyEdited) {
+            obj.visible = layerVisible && isEdited;
+          } else {
+            obj.visible = layerVisible;
+          }
+        }
+      });
+      return;
+    }
+
+    const query = searchQuery.toLowerCase().trim();
+    const results = new Set();
+    
+    group.traverse(obj => {
+      if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry' && obj.userData?.properties) {
+        const props = obj.userData.properties;
+        let isMatch = false;
+        
+        // 全属性を検索
+        for (const [key, value] of Object.entries(props)) {
+          if (String(value).toLowerCase().includes(query) || 
+              key.toLowerCase().includes(query)) {
+            isMatch = true;
+            break;
+          }
+        }
+        
+        if (isMatch) {
+          results.add(obj.id);
+        }
+      }
+    });
+    
+    setSearchResults(results);
+    setIsSearching(true);
+    
+    // 検索結果に基づいて表示を更新
+    group.traverse(obj => {
+      if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
+        const objLayer = obj.userData?.layer || '';
+        const layerVisible = layerVisibilityMap[objLayer] !== false;
+        const isEdited = editedMeshIds.has(obj.id);
+        const isSearchMatch = results.has(obj.id);
+        
+        if (showOnlyEdited) {
+          obj.visible = layerVisible && isEdited && isSearchMatch;
+        } else {
+          obj.visible = layerVisible && isSearchMatch;
+        }
+      }
+    });
+  }
+
+  // 検索クリア
+  function clearSearch() {
+    setSearchQuery('');
+    setSearchResults(new Set());
+    setIsSearching(false);
+    
+    const group = pipesGroupRef.current;
+    if (!group) return;
+    
+    // 全表示に戻す
+    group.traverse(obj => {
+      if (obj.isMesh && obj.geometry && obj.geometry.type === 'CylinderGeometry') {
+        const objLayer = obj.userData?.layer || '';
+        const layerVisible = layerVisibilityMap[objLayer] !== false;
+        const isEdited = editedMeshIds.has(obj.id);
+        
+        if (showOnlyEdited) {
           obj.visible = layerVisible && isEdited;
         } else {
           obj.visible = layerVisible;
@@ -416,10 +512,62 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
       )
     ),
 
-    // GeoJSONエクスポートボタン（左上に移動）
+    // 検索パネル
+    React.createElement(
+      'div',
+      { style: { ...panelStyle, top: '10px', left: '10px', right: 'auto', bottom: 'auto', maxWidth: '300px' } },
+      React.createElement('div', { style: { fontWeight: 700, marginBottom: '6px' } }, '検索'),
+      React.createElement('div', { style: { display: 'flex', gap: '6px', marginBottom: '6px' } },
+        React.createElement('input', {
+          type: 'text',
+          placeholder: '例: diameter: 300, layer: 水道',
+          value: searchQuery,
+          onChange: (e) => setSearchQuery(e.target.value),
+          onKeyPress: (e) => e.key === 'Enter' && performSearch(),
+          style: { 
+            flex: 1, 
+            padding: '6px 8px', 
+            border: '1px solid #ccc', 
+            borderRadius: '4px', 
+            fontSize: '11px' 
+          }
+        }),
+        React.createElement('button', {
+          onClick: performSearch,
+          style: {
+            padding: '6px 10px',
+            background: '#2563eb',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '11px',
+            fontWeight: '600'
+          }
+        }, '検索'),
+        React.createElement('button', {
+          onClick: clearSearch,
+          style: {
+            padding: '6px 10px',
+            background: '#6b7280',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '11px',
+            fontWeight: '600'
+          }
+        }, 'クリア')
+      ),
+      isSearching && React.createElement('div', { 
+        style: { fontSize: '11px', color: '#059669', fontWeight: '600' } 
+      }, `検索結果: ${searchResults.size}件`)
+    ),
+
+    // GeoJSONエクスポートボタン（右上に移動）
     originalGeoJSONRef.current && React.createElement(
       'div',
-      { style: { ...panelStyle, top: '10px', left: '10px', right: 'auto', bottom: 'auto' } },
+      { style: { ...panelStyle, top: '10px', right: '10px', left: 'auto', bottom: 'auto' } },
       React.createElement('button', {
         style: {
           padding: '8px 12px',
