@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@loaders.gl/core": "^4.3.4",
+    "@loaders.gl/las": "^4.3.4",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "three": "^0.180.0"

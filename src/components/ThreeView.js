@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { LASLoader } from '@loaders.gl/las';
 import { addPipesFromGeoJSON } from '../lib/pipes.js';
 import { buildPipesGroupFromGeoJSON, rebuildPipeMeshFromUserData } from '../lib/pipes.js';
 
@@ -18,8 +19,148 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
   const [editedMeshIds, setEditedMeshIds] = useState(new Set());
   // 編集済みのみ表示フラグ
   const [showOnlyEdited, setShowOnlyEdited] = useState(false);
+  // 点群データ関連の状態
+  const [pointCloudData, setPointCloudData] = useState(null);
+  const [isLoadingPointCloud, setIsLoadingPointCloud] = useState(false);
+  const pointCloudRef = useRef(null);
   const pipesGroupRef = useRef(null);
   const originalGeoJSONRef = useRef(null);
+  const sceneRef = useRef(null);
+
+  // LASファイルを読み込んで点群データを表示する関数
+  const loadPointCloud = async (file, scene) => {
+    if (!file) return;
+    
+    setIsLoadingPointCloud(true);
+    setError(null);
+    
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const geometry = await LASLoader.parse(arrayBuffer, {
+        las: {
+          shape: 'mesh',
+          fp64: false,
+          skip: 1,
+          colorDepth: 16
+        }
+      });
+      
+      // LASLoaderが返すデータ構造を確認
+      console.log('LAS geometry:', geometry);
+      
+      // 点群のジオメトリを作成
+      const pointCloudGeometry = new THREE.BufferGeometry();
+      
+      // 位置データを設定
+      if (geometry.attributes && geometry.attributes.POSITION) {
+        const positionData = geometry.attributes.POSITION;
+        // POSITIONデータの構造を確認して適切に処理
+        if (positionData.value) {
+          pointCloudGeometry.setAttribute('position', new THREE.BufferAttribute(positionData.value, 3));
+        } else if (positionData.array) {
+          pointCloudGeometry.setAttribute('position', new THREE.BufferAttribute(positionData.array, 3));
+        } else if (positionData.data) {
+          pointCloudGeometry.setAttribute('position', new THREE.BufferAttribute(positionData.data, 3));
+        } else {
+          console.log('POSITION data structure:', positionData);
+          throw new Error('位置データの構造が予期しない形式です');
+        }
+      } else {
+        throw new Error('位置データが見つかりません');
+      }
+      
+      // 色データを設定（もしあれば）
+      if (geometry.attributes && geometry.attributes.COLOR_0) {
+        const colorData = geometry.attributes.COLOR_0;
+        let colorArray = null;
+        
+        if (colorData.value) {
+          colorArray = colorData.value;
+        } else if (colorData.array) {
+          colorArray = colorData.array;
+        } else if (colorData.data) {
+          colorArray = colorData.data;
+        }
+        
+        if (colorArray) {
+          // 色データを0-1の範囲に正規化（LASファイルは通常0-255の範囲）
+          const normalizedColors = new Float32Array(colorArray.length);
+          for (let i = 0; i < colorArray.length; i++) {
+            normalizedColors[i] = colorArray[i] / 255.0;
+          }
+          pointCloudGeometry.setAttribute('color', new THREE.BufferAttribute(normalizedColors, 3));
+        }
+      }
+      
+      // 点群のマテリアルを作成
+      const hasColors = geometry.attributes && geometry.attributes.COLOR_0 && 
+        (geometry.attributes.COLOR_0.value || geometry.attributes.COLOR_0.array || geometry.attributes.COLOR_0.data);
+      
+      console.log('Has colors:', hasColors);
+      console.log('COLOR_0 data:', geometry.attributes.COLOR_0);
+      
+      const pointCloudMaterial = new THREE.PointsMaterial({
+        size: 0.01,
+        vertexColors: hasColors,
+        transparent: true,
+        opacity: 0.8
+      });
+      
+      // 色データがない場合はデフォルト色を設定
+      if (!hasColors) {
+        pointCloudMaterial.color = new THREE.Color(0x8B4513); // 茶色
+      } else {
+        // 色データがある場合は白色を無効化
+        pointCloudMaterial.color = new THREE.Color(0xffffff);
+      }
+      
+      // 点群メッシュを作成
+      const pointCloud = new THREE.Points(pointCloudGeometry, pointCloudMaterial);
+      
+      // バウンディングボックスを計算して床に配置
+      pointCloudGeometry.computeBoundingBox();
+      const box = pointCloudGeometry.boundingBox;
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      
+      // 点群を床に配置（Y座標を0に設定）
+      pointCloud.position.set(-center.x, -box.min.y, -center.z);
+      
+      console.log('Point cloud bounds:', box);
+      console.log('Point cloud center:', center);
+      console.log('Point cloud size:', size);
+      console.log('Point cloud min Y:', box.min.y);
+      console.log('Point cloud max Y:', box.max.y);
+      
+      setPointCloudData(pointCloud);
+      pointCloudRef.current = pointCloud;
+      
+      // 既存の床を非表示にする
+      scene.traverse(obj => {
+        if (obj.isMesh && obj.geometry && obj.geometry.type === 'PlaneGeometry') {
+          obj.visible = false;
+        }
+      });
+      
+    } catch (err) {
+      setError(`点群データの読み込みに失敗しました: ${err.message}`);
+      console.error('Point cloud loading error:', err);
+    } finally {
+      setIsLoadingPointCloud(false);
+    }
+  };
+
+  // LASファイル選択ハンドラー
+  const handleLASFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (file && file.name.toLowerCase().endsWith('.las')) {
+      loadPointCloud(file, sceneRef.current);
+    } else {
+      setError('LASファイルを選択してください。');
+    }
+    // ファイル選択をリセット
+    event.target.value = '';
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -33,6 +174,7 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf5f5f5);
+    sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 100000);
     camera.position.set(0, 400, 600);
@@ -46,15 +188,18 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     dir.position.set(300, 500, 300);
     scene.add(dir);
 
-    // 床（チラつき抑制設定）
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(20000, 20000),
-      new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 1, metalness: 0, transparent: true, opacity: 0.95, depthWrite: true, depthTest: true })
-    );
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.y = 0;
-    floor.renderOrder = -1;
-    scene.add(floor);
+     // 床（点群データがない場合のみ表示）
+     const floor = new THREE.Mesh(
+       new THREE.PlaneGeometry(20000, 20000),
+       new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 1, metalness: 0, transparent: true, opacity: 0.95, depthWrite: true, depthTest: true })
+     );
+     floor.rotation.x = -Math.PI / 2;
+     floor.position.y = 0;
+     floor.renderOrder = -1;
+     // 点群データがない場合のみ床を表示
+     if (!pointCloudData) {
+       scene.add(floor);
+     }
 
     // 軸非表示、グリッドのみ
     // scene.add(new THREE.AxesHelper(200));
@@ -127,16 +272,24 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
       if (moved) controls.update();
     }
 
-    // 入力データの取り扱い: geojsonData が優先、無ければ geojsonUrl からフェッチ（後方互換）
-    let cancelled = false;
-    const loadAndAdd = (json) => {
-      // 元のGeoJSONを保存（エクスポート用）
-      originalGeoJSONRef.current = json;
-      
-      const { group, bounds } = buildPipesGroupFromGeoJSON(json);
-      if (group) {
-        pipesGroupRef.current = group;
-        scene.add(group);
+     // 点群データをシーンに追加
+     if (pointCloudData) {
+       scene.add(pointCloudData);
+     }
+
+     // 入力データの取り扱い: geojsonData が優先、無ければ geojsonUrl からフェッチ（後方互換）
+     let cancelled = false;
+     const loadAndAdd = (json) => {
+       // 元のGeoJSONを保存（エクスポート用）
+       originalGeoJSONRef.current = json;
+       
+       const { group, bounds } = buildPipesGroupFromGeoJSON(json);
+       if (group) {
+         pipesGroupRef.current = group;
+         
+         // 管の位置はpipes.jsで深さに基づいて自動調整される
+         
+         scene.add(group);
 
         const colorMap = {};
         const visibilityMap = {};
@@ -222,7 +375,7 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
         container.removeChild(renderer.domElement);
       }
     };
-  }, [geojsonData, geojsonUrl]);
+  }, [geojsonData, geojsonUrl, pointCloudData]);
 
   // レイヤー表示切り替え
   function toggleLayerVisibility(layer) {
@@ -376,25 +529,25 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     'div',
     { className: 'three-container', ref: containerRef, style: { position: 'relative' } },
 
-    // 選択オブジェクト編集パネル
-    selectedProps && React.createElement(
-      'div',
-      { style: panelStyle },
-      React.createElement('div', { style: { fontWeight: 700, marginBottom: '6px' } }, '選択したオブジェクト（編集可）'),
-      fields.map((k) =>
-        React.createElement(
-          'div',
-          { key: k, style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' } },
-          React.createElement('label', { style: { width: '40%' } }, k),
-          React.createElement('input', {
-            style: { flex: 1 },
-            value: String(selectedProps[k] ?? ''),
-            onChange: (e) => onChangeField(k, e.target.value)
-          })
-        )
-      ),
-      React.createElement('div', { style: { fontSize: '11px', color: '#666' } }, '半径: radius, 直径: diameter は mm 推定→m に換算 / 深さは将来対応（コードに保持）。')
-    ),
+     // 選択オブジェクト編集パネル
+     selectedProps && React.createElement(
+       'div',
+       { style: panelStyle },
+       React.createElement('div', { style: { fontWeight: 700, marginBottom: '6px' } }, '選択したオブジェクト（編集可）'),
+       fields.map((k) =>
+         React.createElement(
+           'div',
+           { key: k, style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' } },
+           React.createElement('label', { style: { width: '40%' } }, k),
+           React.createElement('input', {
+             style: { flex: 1 },
+             value: String(selectedProps[k] ?? ''),
+             onChange: (e) => onChangeField(k, e.target.value)
+           })
+         )
+       ),
+       React.createElement('div', { style: { fontSize: '11px', color: '#666' } }, '半径: radius, 直径: diameter は mm 推定→m に換算 / 深さは将来対応（コードに保持）。')
+     ),
 
     // レイヤー色編集パネル（表示切り替えも統合）
     layerKeys.length > 0 && React.createElement(
@@ -437,11 +590,34 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     ),
 
 
-    // GeoJSONエクスポートボタン（右上に移動）
-    originalGeoJSONRef.current && React.createElement(
+    // LASファイル選択ボタン（左上）
+    React.createElement(
       'div',
-      { style: { ...panelStyle, top: '10px', right: '10px', left: 'auto', bottom: 'auto' } },
-      React.createElement('button', {
+      { style: { ...panelStyle, top: '10px', left: '10px', right: 'auto', bottom: 'auto' } },
+      React.createElement('div', { style: { fontWeight: 700, marginBottom: '6px' } }, '点群データ'),
+      React.createElement('input', {
+        type: 'file',
+        accept: '.las',
+        onChange: handleLASFileSelect,
+        style: { display: 'none' },
+        id: 'las-file-input'
+      }),
+      React.createElement('label', {
+        htmlFor: 'las-file-input',
+        style: {
+          display: 'inline-block',
+          padding: '8px 12px',
+          background: '#2563eb',
+          color: '#fff',
+          border: 'none',
+          borderRadius: '4px',
+          cursor: 'pointer',
+          fontSize: '12px',
+          fontWeight: '600',
+          marginRight: '8px'
+        }
+      }, isLoadingPointCloud ? '読み込み中...' : 'LASファイル選択'),
+      originalGeoJSONRef.current && React.createElement('button', {
         style: {
           padding: '8px 12px',
           background: '#059669',

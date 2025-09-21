@@ -196,30 +196,22 @@ function buildPipeSegment(p0, p1, props) {
   const r = chooseRadius(props);
   if (!(isFinite(r) && r > 0)) return null;
 
-  // --- 深さ反映（将来用）：使用する場合は以下のブロックを有効化 ---
-  // const startDepth = readDepth(props.start_point_depth ?? props['start_point depth'] ?? props.start_depth);
-  // const endDepth = readDepth(props.end_point_depth ?? props['end_point depth'] ?? props.end_depth);
-  // const yCenter1 = -startDepth + r; // 地表=0, 下向きが+ と仮定
-  // const yCenter2 = -endDepth + r;
-  // const dx = x2 - x1;
-  // const dy = yCenter2 - yCenter1;
-  // const dz = y2 - y1;
-  // const length = Math.hypot(dx, dy, dz);
-  // if (length <= 0) return null;
-  // const geo = new THREE.CylinderGeometry(r, r, length, 24);
-  // const dir = new THREE.Vector3(dx, dy, dz).normalize();
-  // const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-  // const midX = (x1 + x2) / 2;
-  // const midY = (yCenter1 + yCenter2) / 2;
-  // const midZ = (y1 + y2) / 2;
-
-  // --- 現行：水平（床上）配置 ---
+  // --- 深さ反映：start_point_depthとend_point_depthを使用 ---
+  const startDepth = readDepth(props.start_point_depth ?? props['start_point depth'] ?? props.start_depth);
+  const endDepth = readDepth(props.end_point_depth ?? props['end_point depth'] ?? props.end_depth);
+  const yCenter1 = -startDepth + r; // 地表=0, 下向きが+ と仮定
+  const yCenter2 = -endDepth + r;
   const dx = x2 - x1;
-  const dz = y2 - y1; // GeoJSON Y -> three.js Z
-  const length = Math.hypot(dx, dz);
+  const dy = yCenter2 - yCenter1;
+  const dz = y2 - y1;
+  const length = Math.hypot(dx, dy, dz);
   if (length <= 0) return null;
-
   const geo = new THREE.CylinderGeometry(r, r, length, 24);
+  const dir = new THREE.Vector3(dx, dy, dz).normalize();
+  const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  const midX = (x1 + x2) / 2;
+  const midY = (yCenter1 + yCenter2) / 2;
+  const midZ = (y1 + y2) / 2;
 
   // 初期色は layer 優先、なければ material ベース
   const color = colorFromLayer(props.layer) ?? colorFromMaterial(props.material);
@@ -233,15 +225,9 @@ function buildPipeSegment(p0, p1, props) {
   });
   const mesh = new THREE.Mesh(geo, mat);
 
-  // Y 軸基準の円柱を XZ の方向へ回転
-  const dir = new THREE.Vector3(dx, 0, dz).normalize();
-  const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  // 円柱の回転と位置を設定
   mesh.quaternion.copy(quat);
-
-  // 中心位置（床上）：Y は半径
-  const midX = (x1 + x2) / 2;
-  const midZ = (y1 + y2) / 2;
-  mesh.position.set(midX, r, midZ);
+  mesh.position.set(midX, midY, midZ);
 
   // 編集・選択用データ
   mesh.userData = mesh.userData || {};
@@ -273,36 +259,22 @@ export function rebuildPipeMeshFromUserData(mesh) {
 
   const r = chooseRadius(props);
 
-  // --- 深さ反映（将来用）：使用する場合は以下のブロックを有効化 ---
-  // const startDepth = readDepth(props.start_point_depth ?? props['start_point depth'] ?? props.start_depth);
-  // const endDepth = readDepth(props.end_point_depth ?? props['end_point depth'] ?? props.end_depth);
-  // const yCenter1 = -startDepth + (isFinite(r) ? r : 0);
-  // const yCenter2 = -endDepth + (isFinite(r) ? r : 0);
-  // const dx3 = ep.x2 - ep.x1;
-  // const dy3 = yCenter2 - yCenter1;
-  // const dz3 = ep.y2 - ep.y1;
-  // const len3 = Math.hypot(dx3, dy3, dz3);
-  // if (!(isFinite(len3) && len3 > 0) || !(isFinite(r) && r > 0)) return;
-  // const oldGeo3 = mesh.geometry;
-  // mesh.geometry = new THREE.CylinderGeometry(r, r, len3, 24);
-  // oldGeo3?.dispose && oldGeo3.dispose();
-  // const dir3 = new THREE.Vector3(dx3, dy3, dz3).normalize();
-  // mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir3);
-  // mesh.position.set((ep.x1 + ep.x2) / 2, (yCenter1 + yCenter2) / 2, (ep.y1 + ep.y2) / 2);
-
-  // --- 現行：水平（床上）配置 ---
-  const dx = ep.x2 - ep.x1;
-  const dz = ep.y2 - ep.y1;
-  const len = Math.hypot(dx, dz);
-  if (!(isFinite(len) && len > 0) || !(isFinite(r) && r > 0)) return;
-
-  const oldGeo = mesh.geometry;
-  mesh.geometry = new THREE.CylinderGeometry(r, r, len, 24);
-  oldGeo?.dispose && oldGeo.dispose();
-
-  const dir = new THREE.Vector3(dx, 0, dz).normalize();
-  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-  mesh.position.set((ep.x1 + ep.x2) / 2, r, (ep.y1 + ep.y2) / 2);
+  // --- 深さ反映：start_point_depthとend_point_depthを使用 ---
+  const startDepth = readDepth(props.start_point_depth ?? props['start_point depth'] ?? props.start_depth);
+  const endDepth = readDepth(props.end_point_depth ?? props['end_point depth'] ?? props.end_depth);
+  const yCenter1 = -startDepth + (isFinite(r) ? r : 0);
+  const yCenter2 = -endDepth + (isFinite(r) ? r : 0);
+  const dx3 = ep.x2 - ep.x1;
+  const dy3 = yCenter2 - yCenter1;
+  const dz3 = ep.y2 - ep.y1;
+  const len3 = Math.hypot(dx3, dy3, dz3);
+  if (!(isFinite(len3) && len3 > 0) || !(isFinite(r) && r > 0)) return;
+  const oldGeo3 = mesh.geometry;
+  mesh.geometry = new THREE.CylinderGeometry(r, r, len3, 24);
+  oldGeo3?.dispose && oldGeo3.dispose();
+  const dir3 = new THREE.Vector3(dx3, dy3, dz3).normalize();
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir3);
+  mesh.position.set((ep.x1 + ep.x2) / 2, (yCenter1 + yCenter2) / 2, (ep.y1 + ep.y2) / 2);
 
   // 色は layer 優先で更新（透明設定は維持）
   const color = colorFromLayer(props.layer) ?? colorFromMaterial(props.material);
