@@ -48,6 +48,11 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
       // LASLoaderが返すデータ構造を確認
       console.log('LAS geometry:', geometry);
       
+      // 点群の総点数を取得
+      const totalPoints = geometry.header ? geometry.header.vertexCount : 0;
+      console.log('=== 点群データ情報 ===');
+      console.log('LASファイルから取得した点数:', totalPoints);
+      
       // 点群のジオメトリを作成
       const pointCloudGeometry = new THREE.BufferGeometry();
       
@@ -117,6 +122,10 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
       // 点群メッシュを作成
       const pointCloud = new THREE.Points(pointCloudGeometry, pointCloudMaterial);
       
+      // 実際に表示される点数を取得
+      const displayedPoints = pointCloudGeometry.attributes.position.count;
+      console.log('画面に表示される点数:', displayedPoints);
+      
       // バウンディングボックスを計算して床に配置
       pointCloudGeometry.computeBoundingBox();
       const box = pointCloudGeometry.boundingBox;
@@ -131,6 +140,12 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
       console.log('Point cloud size:', size);
       console.log('Point cloud min Y:', box.min.y);
       console.log('Point cloud max Y:', box.max.y);
+      
+      // 点数比較情報
+      console.log('=== 点数比較 ===');
+      console.log('LASファイルの総点数:', totalPoints);
+      console.log('画面表示の点数:', displayedPoints);
+      console.log('表示率:', totalPoints > 0 ? ((displayedPoints / totalPoints) * 100).toFixed(2) + '%' : 'N/A');
       
       setPointCloudData(pointCloud);
       pointCloudRef.current = pointCloud;
