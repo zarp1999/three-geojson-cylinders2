@@ -22,6 +22,8 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
   // 点群データ関連の状態
   const [pointCloudData, setPointCloudData] = useState(null);
   const [isLoadingPointCloud, setIsLoadingPointCloud] = useState(false);
+  const [maxPoints, setMaxPoints] = useState(100000); // 表示する最大点数
+  const [skipPoints, setSkipPoints] = useState(1); // スキップ間隔
   const pointCloudRef = useRef(null);
   const pipesGroupRef = useRef(null);
   const originalGeoJSONRef = useRef(null);
@@ -40,7 +42,7 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
         las: {
           shape: 'mesh',
           fp64: false,
-          skip: 1,
+          skip: skipPoints,
           colorDepth: 16
         }
       });
@@ -56,20 +58,29 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
       // 点群のジオメトリを作成
       const pointCloudGeometry = new THREE.BufferGeometry();
       
-      // 位置データを設定
+      // 位置データを設定（最大点数制限を適用）
       if (geometry.attributes && geometry.attributes.POSITION) {
         const positionData = geometry.attributes.POSITION;
+        let positionArray = null;
+        
         // POSITIONデータの構造を確認して適切に処理
         if (positionData.value) {
-          pointCloudGeometry.setAttribute('position', new THREE.BufferAttribute(positionData.value, 3));
+          positionArray = positionData.value;
         } else if (positionData.array) {
-          pointCloudGeometry.setAttribute('position', new THREE.BufferAttribute(positionData.array, 3));
+          positionArray = positionData.array;
         } else if (positionData.data) {
-          pointCloudGeometry.setAttribute('position', new THREE.BufferAttribute(positionData.data, 3));
+          positionArray = positionData.data;
         } else {
           console.log('POSITION data structure:', positionData);
           throw new Error('位置データの構造が予期しない形式です');
         }
+        
+        // 最大点数制限を適用
+        const actualPoints = Math.min(positionArray.length / 3, maxPoints);
+        const limitedArray = positionArray.slice(0, actualPoints * 3);
+        pointCloudGeometry.setAttribute('position', new THREE.BufferAttribute(limitedArray, 3));
+        
+        console.log('制限適用後の点数:', actualPoints);
       } else {
         throw new Error('位置データが見つかりません');
       }
@@ -88,10 +99,14 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
         }
         
         if (colorArray) {
+          // 最大点数制限を適用して色データを制限
+          const actualPoints = Math.min(colorArray.length / 3, maxPoints);
+          const limitedColorArray = colorArray.slice(0, actualPoints * 3);
+          
           // 色データを0-1の範囲に正規化（LASファイルは通常0-255の範囲）
-          const normalizedColors = new Float32Array(colorArray.length);
-          for (let i = 0; i < colorArray.length; i++) {
-            normalizedColors[i] = colorArray[i] / 255.0;
+          const normalizedColors = new Float32Array(limitedColorArray.length);
+          for (let i = 0; i < limitedColorArray.length; i++) {
+            normalizedColors[i] = limitedColorArray[i] / 255.0;
           }
           pointCloudGeometry.setAttribute('color', new THREE.BufferAttribute(normalizedColors, 3));
         }
@@ -608,8 +623,40 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     // LASファイル選択ボタン（左上）
     React.createElement(
       'div',
-      { style: { ...panelStyle, top: '10px', left: '10px', right: 'auto', bottom: 'auto' } },
+      { style: { ...panelStyle, top: '10px', left: '10px', right: 'auto', bottom: 'auto', maxWidth: '320px' } },
       React.createElement('div', { style: { fontWeight: 700, marginBottom: '6px' } }, '点群データ'),
+      
+      // 点数制御UI
+      React.createElement('div', { style: { marginBottom: '12px', padding: '8px', background: '#f8f9fa', borderRadius: '4px' } },
+        React.createElement('div', { style: { fontSize: '11px', fontWeight: '600', marginBottom: '6px' } }, '表示点数制御'),
+        
+        // 最大点数設定
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' } },
+          React.createElement('label', { style: { fontSize: '10px', width: '60px' } }, '最大点数:'),
+          React.createElement('input', {
+            type: 'number',
+            value: maxPoints,
+            onChange: (e) => setMaxPoints(Math.max(1, parseInt(e.target.value) || 1000)),
+            style: { width: '80px', fontSize: '10px', padding: '2px 4px' },
+            min: 1,
+            max: 10000000
+          })
+        ),
+        
+        // スキップ間隔設定
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' } },
+          React.createElement('label', { style: { fontSize: '10px', width: '60px' } }, 'スキップ:'),
+          React.createElement('input', {
+            type: 'number',
+            value: skipPoints,
+            onChange: (e) => setSkipPoints(Math.max(1, parseInt(e.target.value) || 1)),
+            style: { width: '80px', fontSize: '10px', padding: '2px 4px' },
+            min: 1,
+            max: 1000
+          })
+        )
+      ),
+      
       React.createElement('input', {
         type: 'file',
         accept: '.las',
