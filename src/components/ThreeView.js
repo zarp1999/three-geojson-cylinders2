@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { LASLoader } from '@loaders.gl/las';
+import Stats from 'three-stats';
 import { addPipesFromGeoJSON } from '../lib/pipes.js';
 import { buildPipesGroupFromGeoJSON, rebuildPipeMeshFromUserData } from '../lib/pipes.js';
 
@@ -202,6 +203,15 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
     renderer.shadowMap.enabled = false;
     container.appendChild(renderer.domElement);
 
+    // Stats.jsを初期化
+    const stats = new Stats();
+    stats.showPanel(0); // FPSパネルを表示
+    stats.dom.style.position = 'absolute';
+    stats.dom.style.top = '10px';
+    stats.dom.style.right = '10px';
+    stats.dom.style.zIndex = '1000';
+    container.appendChild(stats.dom);
+
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf5f5f5);
     sceneRef.current = scene;
@@ -379,9 +389,16 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
       const now = performance.now();
       const delta = (now - last) / 1000;
       last = now;
+      
+      // Statsを更新
+      stats.begin();
+      
       updateCameraByKeys(delta);
       controls.update();
       renderer.render(scene, camera);
+      
+      // Statsを終了
+      stats.end();
     };
     animate();
 
@@ -394,6 +411,12 @@ function ThreeView({ geojsonData, geojsonUrl = '/sample.geojson' }) {
       renderer.domElement.removeEventListener('click', onClick);
       controls.dispose();
       renderer.dispose();
+      
+      // Statsを削除
+      if (stats.dom.parentNode === container) {
+        container.removeChild(stats.dom);
+      }
+      
       scene.traverse(obj => {
         if (obj.isMesh) {
           obj.geometry?.dispose();
